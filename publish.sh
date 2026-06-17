@@ -18,7 +18,8 @@ DEL=()
 [ "${DRONE_DELETE:-0}" = "1" ] && DEL=(--delete)
 
 echo "Syncing flights/ -> $DRONE_HOST:$DEST/flights/"
-rsync -avh --progress "${DEL[@]}" flights/ "$DRONE_HOST:$DEST/flights/"
+# ${DEL[@]+...} guard keeps macOS's bash 3.2 from erroring on an empty array under set -u
+rsync -avh --progress ${DEL[@]+"${DEL[@]}"} flights/ "$DRONE_HOST:$DEST/flights/"
 
 echo "Syncing manifest.json"
 rsync -avh manifest.json "$DRONE_HOST:$DEST/manifest.json"
