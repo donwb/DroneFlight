@@ -5,9 +5,10 @@ site, serves the static files + videos directly, and proxies `/api/*` to
 `serve.py` (the clips API) running as a `systemd` service on loopback.
 
 **Two pipelines, on purpose:**
-- **Code** (html / py / configs) → GitHub → **Actions** → SSH deploy on push.
-- **Media + data** (`flights/`, `manifest.json`) → **`rsync`** via `publish.sh`.
-  These are ~10GB and grow, so they are gitignored and never committed.
+- **Code** (html / py / configs) → committed to GitHub → deployed with **`./deploy.sh`**
+  (pushes, then the droplet pulls + restarts the API).
+- **Media + data** (`flights/`, `manifest.json`) → **`rsync`** via **`./add-flights.sh`**
+  (which calls `publish.sh`). These are ~10GB and grow, so they're gitignored, never committed.
 
 ---
 
@@ -82,13 +83,7 @@ sudo cp /opt/droneflights/deploy/Caddyfile /etc/caddy/Caddyfile
 sudo systemctl reload caddy     # Caddy auto-fetches a Let's Encrypt cert
 ```
 
-### 6. GitHub Actions secrets
-In the repo: **Settings → Secrets and variables → Actions**, add:
-- `DROPLET_HOST` — droplet IP or hostname
-- `DROPLET_USER` — a sudo-capable deploy user (give it passwordless `systemctl restart droneflights`)
-- `DROPLET_SSH_KEY` — a **private** deploy key whose public half is in that user's `~/.ssh/authorized_keys`
-
-### 7. First media upload (from your Mac)
+### 6. First media upload (from your Mac)
 ```sh
 cd ~/DroneFlights
 DRONE_HOST=droneflights@<droplet-ip> ./publish.sh   # ~10GB once, deltas after
@@ -103,13 +98,13 @@ Visit `https://yourdomain` → enter the password → your library is live.
 **Add flights** (local — needs the LRF files + exiftool/ffmpeg):
 ```sh
 cd ~/DroneFlights
-python3 ingest.py /Volumes/SDCARD/DCIM      # extract + proxy + thumb + manifest
-DRONE_HOST=droneflights@<droplet-ip> ./publish.sh   # push the new media up
+./add-flights.sh /Volumes/SDCARD/DCIM       # ingest locally + upload new media
 ```
 
 **Change the app** (player UI, server, etc.):
 ```sh
-git add -A && git commit -m "..." && git push   # Actions deploys it
+git commit -am "what changed"
+./deploy.sh                                  # push + pull on the droplet + restart API
 ```
 
 **Clips** marked on the live site write to `flights/<id>/clips.json` on the droplet.

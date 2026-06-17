@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sync the local library's MEDIA + DATA to the droplet.
-# Code is deployed separately by GitHub Actions on push; this handles the big
+# Code is deployed separately via ./deploy.sh; this handles the big
 # files that don't belong in git (proxy.mp4, thumb.jpg, flight.json, manifest, clips).
 #
 # Usage:
