@@ -16,6 +16,9 @@
 #
 # Config comes from prompts, or set these env vars to skip them:
 #   DOMAIN, REPO_URL, AUTH_USER (default: don), AUTH_PASS
+#
+# NOTE: AUTH_USER / AUTH_PASS are the WEBSITE login you're creating (Caddy basic
+# auth) — NOT a GitHub login. A public repo clones anonymously; no Git creds needed.
 set -euo pipefail
 
 APP_USER=droneflights
@@ -25,13 +28,16 @@ PORT=8778
 [ "$(id -u)" -eq 0 ] || { echo "Please run as root (sudo)."; exit 1; }
 
 # ---- config: env first, then prompt ----
+DEFAULT_REPO="https://github.com/donwb/DroneFlight.git"
 : "${DOMAIN:=}"; : "${REPO_URL:=}"; : "${AUTH_USER:=}"; : "${AUTH_PASS:=}"
-[ -n "$DOMAIN" ]    || read -rp  "Domain (e.g. flights.example.com): " DOMAIN
-[ -n "$REPO_URL" ]  || read -rp  "Git repo URL (https://… or git@github.com:…): " REPO_URL
-[ -n "$AUTH_USER" ] || { read -rp "Login username [don]: " AUTH_USER; AUTH_USER=${AUTH_USER:-don}; }
-[ -n "$AUTH_PASS" ] || { read -rsp "Login password: " AUTH_PASS; echo; }
+[ -n "$DOMAIN" ]   || read -rp "Domain (e.g. flights.donwb.com): " DOMAIN
+[ -n "$REPO_URL" ] || { read -rp "Git repo URL [$DEFAULT_REPO]: " REPO_URL; REPO_URL=${REPO_URL:-$DEFAULT_REPO}; }
+# These are the website's password gate (Caddy basic auth) that you're creating now.
+# NOT your GitHub credentials — the public repo clones with no login.
+[ -n "$AUTH_USER" ] || { read -rp  "Choose a site login username [don]: " AUTH_USER; AUTH_USER=${AUTH_USER:-don}; }
+[ -n "$AUTH_PASS" ] || { read -rsp "Choose a site login password: " AUTH_PASS; echo; }
 [ -n "$DOMAIN" ] && [ -n "$REPO_URL" ] && [ -n "$AUTH_PASS" ] || {
-  echo "Domain, repo URL, and password are all required."; exit 1; }
+  echo "Domain, repo URL, and a site password are all required."; exit 1; }
 
 echo "==> App user + SSH access"
 id "$APP_USER" &>/dev/null || adduser --disabled-password --gecos "" "$APP_USER"
@@ -64,8 +70,8 @@ fi
 echo "==> Code"
 sudo -u "$APP_USER" bash -c "ssh-keyscan -t ed25519,rsa github.com >> ~/.ssh/known_hosts 2>/dev/null" || true
 if [ -d "$APP_DIR/.git" ]; then
-  sudo -u "$APP_USER" git -C "$APP_DIR" pull --ff-only || true
-elif ! sudo -u "$APP_USER" git clone "$REPO_URL" "$APP_DIR" 2>/tmp/clone.err; then
+  sudo -u "$APP_USER" env GIT_TERMINAL_PROMPT=0 git -C "$APP_DIR" pull --ff-only || true
+elif ! sudo -u "$APP_USER" env GIT_TERMINAL_PROMPT=0 git clone "$REPO_URL" "$APP_DIR" 2>/tmp/clone.err; then
   KEY="/home/$APP_USER/.ssh/id_ed25519"
   sudo -u "$APP_USER" bash -c "[ -f '$KEY' ] || ssh-keygen -t ed25519 -N '' -f '$KEY'"
   echo
