@@ -315,6 +315,7 @@ const M_TO_FT = 3.28084, MS_TO_MPH = 2.23694, M_TO_MI = 0.000621371;
     renderClips();
     if (await persist()) {
       markIn = markOut = null; $('clabel').value = '';   // keep marks if it failed, so you can retry
+      $('clabel').blur();                                // release focus so i/o shortcuts work for the next clip
       showStatus('Saved ✓', 'ok');
     } else {
       clips.pop();
@@ -336,14 +337,27 @@ const M_TO_FT = 3.28084, MS_TO_MPH = 2.23694, M_TO_MI = 0.000621371;
   $('bOut').addEventListener('click', () => { markOut = vid.currentTime;
     if (markIn != null && markIn >= markOut) markIn = null; refreshMarkUI(); });
   $('bSave').addEventListener('click', saveClip);
-  $('clabel').addEventListener('keydown', e => { if (e.key === 'Enter') saveClip(); });
+  $('clabel').addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveClip();
+    else if (e.key === 'Escape') $('clabel').blur();   // back out to the i/o shortcuts
+  });
 
+  // keyboard-only clip flow:  i -> o -> (auto-focus label) -> type -> Enter
   document.addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT' || e.metaKey || e.ctrlKey) return;
-    if (e.key === 'i' || e.key === 'I') { markIn = vid.currentTime;
-      if (markOut != null && markOut <= markIn) markOut = null; refreshMarkUI(); }
-    else if (e.key === 'o' || e.key === 'O') { markOut = vid.currentTime;
-      if (markIn != null && markIn >= markOut) markIn = null; refreshMarkUI(); }
+    if (e.target.tagName === 'INPUT' || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'i') {
+      e.preventDefault();
+      markIn = vid.currentTime;
+      if (markOut != null && markOut <= markIn) markOut = null;
+      refreshMarkUI();
+    } else if (k === 'o') {
+      e.preventDefault();
+      markOut = vid.currentTime;
+      if (markIn != null && markIn >= markOut) markIn = null;
+      refreshMarkUI();
+      if (markIn != null && markOut != null && markOut > markIn) $('clabel').focus();
+    }
   });
 
   // load any saved clips for this flight
