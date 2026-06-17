@@ -8,10 +8,35 @@ Built from the **`.LRF`** files alone: telemetry is decoded from DJI's embedded
 video doubles as the browser-playable proxy. The big original `.MP4`s are never
 needed or stored.
 
+---
+
+## 🚁 The two commands I'll forget
+
+Live site: **https://flights.donwb.com**
+
+```sh
+# After a flight — add new footage to the live site (ingest locally + upload):
+./add-flights.sh /Volumes/SDCARD/DCIM
+
+# After changing the app — deploy code to the live site:
+git commit -am "what changed" && ./deploy.sh
+
+# Just want to test locally before deploying:
+python3 serve.py            # then open http://localhost:8778
+```
+
+Both scripts already point at `flights.donwb.com`. `add-flights.sh` skips flights
+already imported and uploads only new files; `deploy.sh` pushes, pulls on the
+droplet, and restarts the API. Deploying needs the changes committed first.
+
+(Full server setup + recovery lives in [DEPLOY.md](DEPLOY.md).)
+
+---
+
 ## Requirements
 `brew install exiftool ffmpeg` · `python3`
 
-## Daily use
+## Running locally (the underlying commands)
 
 ```sh
 # 1. import — point at a folder, SD card, or individual .LRF files
