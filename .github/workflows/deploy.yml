@@ -1,0 +1,29 @@
+name: deploy
+
+# Deploys CODE on push to main. Media/data are NOT in git — they sync via publish.sh.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/droneflights
+            git fetch --all
+            git reset --hard origin/main
+            sudo systemctl restart droneflights
+            # reload Caddy only if the site config changed
+            if ! sudo diff -q deploy/Caddyfile /etc/caddy/Caddyfile >/dev/null 2>&1; then
+              echo "Caddyfile changed — review and copy manually, then: sudo systemctl reload caddy"
+            fi
+            echo "deployed $(git rev-parse --short HEAD)"

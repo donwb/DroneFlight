@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drone Flights</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, system-ui, sans-serif;
+         background: #0d1117; color: #e6edf3; }
+  header { padding: 22px 28px 10px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 22px; }
+  header .sub { color: #7d8590; }
+  header .navlink { color: #3fb950; text-decoration: none; font-weight: 500; }
+  header .navlink:hover { text-decoration: underline; }
+  header .tot { margin-left: auto; color: #7d8590; font-variant-numeric: tabular-nums; }
+  .controls { padding: 0 28px 14px; display: flex; gap: 10px; align-items: center; }
+  input, select { background: #161b22; border: 1px solid #21262d; color: #e6edf3;
+                  border-radius: 8px; padding: 7px 10px; font: inherit; }
+  input { flex: 1; max-width: 360px; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+          gap: 16px; padding: 0 28px 40px; }
+  a.card { background: #161b22; border: 1px solid #21262d; border-radius: 12px; overflow: hidden;
+           text-decoration: none; color: inherit; transition: border-color .15s, transform .15s; display: block; }
+  a.card:hover { border-color: #58a6ff; transform: translateY(-2px); }
+  .thumb { aspect-ratio: 16/9; background: #000 center/cover no-repeat; position: relative; }
+  .thumb .dur { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.7);
+                padding: 2px 7px; border-radius: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .body { padding: 12px 14px; }
+  .date { font-weight: 600; }
+  .model { color: #7d8590; font-size: 12px; margin-top: 1px; }
+  .stats { display: flex; gap: 14px; margin-top: 10px; color: #adbac7; font-size: 12.5px;
+           font-variant-numeric: tabular-nums; }
+  .stats b { color: #e6edf3; font-weight: 600; }
+  .empty { padding: 60px 28px; color: #7d8590; max-width: 680px; }
+  .empty code { background: #161b22; padding: 2px 7px; border-radius: 6px; color: #e6edf3; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Drone Flights</h1>
+  <span class="sub">your flight library</span>
+  <a class="navlink" href="clips.html">Clips →</a>
+  <span class="tot" id="tot"></span>
+</header>
+<div class="controls" id="controls" style="display:none">
+  <input id="q" placeholder="Search by date / model…" />
+  <select id="sort">
+    <option value="date">Newest first</option>
+    <option value="date_asc">Oldest first</option>
+    <option value="dist">Longest path</option>
+    <option value="alt">Highest altitude</option>
+    <option value="dur">Longest duration</option>
+  </select>
+</div>
+<div id="grid"></div>
+
+<script>
+const fmtDate = iso => {
+  if (!iso) return 'Unknown date';
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric'})
+       + ' · ' + d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+};
+const fmtDur = s => `${Math.floor(s/60)}:${String(Math.round(s%60)).padStart(2,'0')}`;
+// imperial conversions (manifest stores raw SI: meters, m/s)
+const M_TO_FT = 3.28084, MS_TO_MPH = 2.23694, M_TO_MI = 0.000621371;
+
+let FLIGHTS = [];
+function render() {
+  const q = document.getElementById('q').value.toLowerCase();
+  const sort = document.getElementById('sort').value;
+  let list = FLIGHTS.filter(f =>
+    !q || (fmtDate(f.date)+' '+(f.model||'')+' '+f.id).toLowerCase().includes(q));
+  const by = {
+    date: (a,b)=>(b.date||'').localeCompare(a.date||''),
+    date_asc: (a,b)=>(a.date||'').localeCompare(b.date||''),
+    dist: (a,b)=>b.pathLength-a.pathLength,
+    alt: (a,b)=>(b.relAlt?.max||0)-(a.relAlt?.max||0),
+    dur: (a,b)=>b.duration-a.duration,
+  }[sort];
+  list.sort(by);
+  document.getElementById('grid').innerHTML = list.map(f => `
+    <a class="card" href="player.html?id=${encodeURIComponent(f.id)}">
+      <div class="thumb" style="background-image:url('flights/${f.id}/${f.thumb}')">
+        <span class="dur">${fmtDur(f.duration)}</span>
+      </div>
+      <div class="body">
+        <div class="date">${fmtDate(f.date)}</div>
+        <div class="model">${(f.model||'DJI').trim()}</div>
+        <div class="stats">
+          <span><b>${(f.pathLength*M_TO_MI).toFixed(2)}</b> mi</span>
+          <span><b>${f.relAlt?Math.round(f.relAlt.max*M_TO_FT):'–'}</b> ft alt</span>
+          <span><b>${Math.round(f.maxSpeed*MS_TO_MPH)}</b> mph</span>
+        </div>
+      </div>
+    </a>`).join('');
+}
+
+(async function () {
+  let man;
+  try { man = await (await fetch('manifest.json')).json(); }
+  catch { man = { flights: [] }; }
+  FLIGHTS = man.flights || [];
+  document.getElementById('tot').textContent =
+    FLIGHTS.length ? `${FLIGHTS.length} flight${FLIGHTS.length>1?'s':''}` : '';
+  if (!FLIGHTS.length) {
+    document.getElementById('grid').innerHTML =
+      `<div class="empty"><h3>No flights yet</h3>
+       <p>Import some by pointing the ingest script at a folder of DJI files:</p>
+       <p><code>python3 ingest.py /path/to/your/dji/files</code></p>
+       <p>Then refresh this page.</p></div>`;
+    return;
+  }
+  document.getElementById('controls').style.display = 'flex';
+  document.getElementById('q').addEventListener('input', render);
+  document.getElementById('sort').addEventListener('change', render);
+  render();
+})();
+</script>
+</body>
+</html>

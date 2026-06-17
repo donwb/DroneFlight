@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Flight Player</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.4 -apple-system, system-ui, sans-serif;
+         background: #0d1117; color: #e6edf3; height: 100vh; overflow: hidden; }
+  #app { display: grid; grid-template-columns: 1.3fr 1fr; grid-template-rows: 1fr auto;
+         gap: 10px; padding: 10px; height: 100vh; }
+  #map { grid-row: 1 / 3; border-radius: 10px; }
+  #right { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  video { width: 100%; border-radius: 10px; background: #000; max-height: 46vh; }
+  #hud { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stat { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 8px 10px; }
+  .stat .k { color: #7d8590; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .stat .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat .v small { font-size: 11px; color: #7d8590; font-weight: 400; }
+  #chartwrap { grid-column: 1 / 3; background: #161b22; border: 1px solid #21262d;
+               border-radius: 10px; padding: 8px 12px; height: 150px;
+               cursor: ew-resize; touch-action: none; }
+  #title { position: absolute; z-index: 500; top: 18px; left: 18px; background: rgba(13,17,23,.82);
+           padding: 6px 12px; border-radius: 8px; font-weight: 600; backdrop-filter: blur(6px);
+           display: flex; gap: 10px; align-items: center; }
+  #title a { color: #58a6ff; text-decoration: none; font-weight: 500; }
+  #clips { background: #161b22; border: 1px solid #21262d; border-radius: 10px;
+           padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+           min-height: 0; flex: 1; overflow: hidden; }
+  .cliphead { display: flex; justify-content: space-between; align-items: baseline; }
+  .cliphead > span:first-child { font-weight: 600; }
+  .cliphead .hint { color: #7d8590; font-size: 11px; }
+  .status { font-weight: 500; font-size: 12px; margin-left: 6px; }
+  .status.ok { color: #3fb950; }
+  .status.err { color: #f85149; }
+  kbd { background: #21262d; border: 1px solid #30363d; border-radius: 4px;
+        padding: 0 5px; font: 11px ui-monospace, monospace; }
+  .cliprow { display: flex; gap: 6px; align-items: center; }
+  button { font: inherit; cursor: pointer; border-radius: 7px; border: 1px solid #30363d;
+           background: #21262d; color: #e6edf3; padding: 6px 10px; }
+  button:hover:not(:disabled) { border-color: #58a6ff; }
+  button:disabled { opacity: .45; cursor: default; }
+  .mk small { color: #f0883e; font-variant-numeric: tabular-nums; margin-left: 3px; }
+  .mk.set { border-color: #f0883e; }
+  #clabel { flex: 1; min-width: 0; background: #0d1117; border: 1px solid #30363d;
+            color: #e6edf3; border-radius: 7px; padding: 6px 9px; font: inherit; }
+  .save { background: #238636; border-color: #2ea043; }
+  .save:hover:not(:disabled) { background: #2ea043; border-color: #2ea043; }
+  #cliplist { overflow-y: auto; display: flex; flex-direction: column; gap: 5px; padding-right: 2px; }
+  .clip { display: flex; align-items: center; gap: 8px; background: #0d1117;
+          border: 1px solid #21262d; border-radius: 7px; padding: 6px 9px; }
+  .clip:hover { border-color: #3fb950; }
+  .clip .play { flex: 1; display: flex; gap: 8px; align-items: baseline; cursor: pointer; min-width: 0; }
+  .clip .lbl { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .clip .rng { color: #7d8590; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .clip .del { padding: 2px 8px; color: #7d8590; background: none; border: none; font-size: 16px; }
+  .clip .del:hover { color: #f85149; }
+  .empty { color: #7d8590; font-size: 12.5px; padding: 4px 2px; }
+  .drone-marker { transition: transform .05s linear; }
+  .leaflet-tile { filter: none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"><div id="title"><a href="index.html">← All flights</a><span id="ttl">Loading…</span></div></div>
+  <div id="right">
+    <video id="vid" controls playsinline></video>
+    <div id="hud">
+      <div class="stat"><div class="k">Altitude</div><div class="v"><span id="alt">–</span><small> ft</small></div></div>
+      <div class="stat"><div class="k">Speed</div><div class="v"><span id="spd">–</span><small> mph</small></div></div>
+      <div class="stat"><div class="k">Climb</div><div class="v"><span id="clb">–</span><small> ft/s</small></div></div>
+      <div class="stat"><div class="k">Heading</div><div class="v"><span id="hdg">–</span><small>°</small></div></div>
+      <div class="stat"><div class="k">Gimbal</div><div class="v"><span id="gmb">–</span><small>°</small></div></div>
+      <div class="stat"><div class="k">ISO</div><div class="v" id="iso">–</div></div>
+      <div class="stat"><div class="k">Shutter</div><div class="v" id="sht">–</div></div>
+      <div class="stat"><div class="k">F-stop</div><div class="v">ƒ/<span id="fnm">–</span></div></div>
+    </div>
+    <div id="clips">
+      <div class="cliphead">
+        <span><b>Clips</b> <span id="clipStatus" class="status"></span></span>
+        <span class="hint">mark cool moments &nbsp;·&nbsp; <kbd>I</kbd> in &nbsp; <kbd>O</kbd> out</span>
+      </div>
+      <div class="cliprow">
+        <button id="bIn" class="mk">Set In <small id="inT">–</small></button>
+        <button id="bOut" class="mk">Set Out <small id="outT">–</small></button>
+        <input id="clabel" placeholder="label this clip…" />
+        <button id="bSave" class="save" disabled>Save</button>
+      </div>
+      <div id="cliplist"></div>
+    </div>
+  </div>
+  <div id="chartwrap"><canvas id="chart"></canvas></div>
+</div>
+
+<script>
+const ARROW = `<svg width="34" height="34" viewBox="0 0 34 34">
+  <circle cx="17" cy="17" r="7" fill="#58a6ff" stroke="#fff" stroke-width="2"/>
+  <path d="M17 0 L23 12 L17 9 L11 12 Z" fill="#58a6ff" stroke="#fff" stroke-width="1.5"/></svg>`;
+
+// imperial conversions (stored telemetry is raw SI)
+const M_TO_FT = 3.28084, MS_TO_MPH = 2.23694, M_TO_MI = 0.000621371;
+
+(async function () {
+  const id = new URLSearchParams(location.search).get('id');
+  if (!id) { document.getElementById('ttl').textContent = 'No flight id'; return; }
+  const base = `flights/${id}/`;
+  const data = await (await fetch(base + 'flight.json')).json();
+  const T = data.track, M = data.meta;
+  const latlngs = T.map(s => [s.lat, s.lon]);
+
+  const vid = document.getElementById('vid');
+  vid.src = base + 'proxy.mp4';
+
+  const map = L.map('map', { zoomControl: true, attributionControl: false });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
+  const path = L.polyline(latlngs, { color: '#58a6ff', weight: 3, opacity: .9 }).addTo(map);
+  const trail = L.polyline([], { color: '#f0883e', weight: 4, opacity: .95 }).addTo(map);
+  map.fitBounds(path.getBounds().pad(0.15));
+  L.circleMarker(latlngs[0], { radius: 6, color: '#3fb950', fillColor:'#3fb950', fillOpacity:1 })
+    .addTo(map).bindTooltip('Takeoff');
+  const icon = L.divIcon({ className: '', html: `<div class="drone-marker" id="dm">${ARROW}</div>`,
+    iconSize: [34, 34], iconAnchor: [17, 17] });
+  const drone = L.marker(latlngs[0], { icon }).addTo(map);
+
+  const dt = data.meta.source && /DJI_(\d{14})/.exec(data.meta.source);
+  let when = '';
+  if (dt) { const s = dt[1]; when = `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`; }
+  document.getElementById('ttl').textContent =
+    `${(M.model||'DJI').trim()} · ${when} · ${(M.pathLength * M_TO_MI).toFixed(2)} mi`;
+
+  const chart = new Chart(document.getElementById('chart'), {
+    type: 'line',
+    data: { labels: T.map(s => s.t),
+      datasets: [{ data: T.map(s => s.relAlt == null ? null : s.relAlt * M_TO_FT), borderColor: '#58a6ff',
+        backgroundColor: 'rgba(88,166,255,.12)', fill: true, pointRadius: 0, borderWidth: 2, tension: .25 }] },
+    options: { animation: false, responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { type: 'linear', ticks: { color: '#7d8590', maxTicksLimit: 8,
+              callback: v => v.toFixed(0) + 's' }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#7d8590' }, grid: { color: '#21262d' },
+             title: { display: true, text: 'Altitude (ft)', color: '#7d8590' } } } }
+  });
+  let curX = null;
+  let clips = [], markIn = null, markOut = null, playUntil = null;
+
+  // saved clips (green) + the pending in/out selection (orange), under the line
+  Chart.register({ id: 'clipbands', beforeDatasetsDraw(c) {
+    const xs = c.scales.x, { top, bottom } = c.chartArea, g = c.ctx, h = bottom - top;
+    g.save();
+    const band = (a, b, fill) => {
+      const x1 = xs.getPixelForValue(Math.min(a, b)), x2 = xs.getPixelForValue(Math.max(a, b));
+      g.fillStyle = fill; g.fillRect(x1, top, Math.max(2, x2 - x1), h);
+    };
+    clips.forEach(cl => band(cl.in, cl.out, 'rgba(63,185,80,.20)'));
+    if (markIn != null && markOut != null) band(markIn, markOut, 'rgba(240,136,62,.28)');
+    const tick = (v, col) => { if (v == null) return; const x = xs.getPixelForValue(v);
+      g.strokeStyle = col; g.lineWidth = 1.5; g.setLineDash([4, 3]);
+      g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom); g.stroke(); g.setLineDash([]); };
+    tick(markIn, '#f0883e'); tick(markOut, '#f0883e');
+    g.restore();
+  }});
+
+  Chart.register({ id: 'playhead', afterDraw(c) {
+    if (curX == null) return;
+    const x = c.scales.x.getPixelForValue(curX), { top, bottom } = c.chartArea;
+    const g = c.ctx; g.save();
+    g.strokeStyle = '#f0883e'; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom); g.stroke();
+    g.fillStyle = '#f0883e';                       // grab knob at the top
+    g.beginPath(); g.arc(x, top, 4.5, 0, Math.PI * 2); g.fill();
+    g.restore();
+  }});
+
+  const $ = id => document.getElementById(id);
+  let lo = 0;
+  function idxForTime(t) {
+    if (t <= T[lo].t) lo = 0;
+    while (lo < T.length - 1 && T[lo + 1].t <= t) lo++;
+    while (lo > 0 && T[lo].t > t) lo--;
+    return lo;
+  }
+  function update(t) {
+    if (t == null) t = vid.currentTime;
+    const i = idxForTime(t);
+    const s = T[i];
+    drone.setLatLng([s.lat, s.lon]);
+    trail.setLatLngs(latlngs.slice(0, i + 1));
+    const dm = $('dm'); if (dm && s.yaw != null) dm.style.transform = `rotate(${s.yaw}deg)`;
+    $('alt').textContent = s.relAlt != null ? (s.relAlt * M_TO_FT).toFixed(0) : '–';
+    $('spd').textContent = (s.speed * MS_TO_MPH).toFixed(0);
+    $('clb').textContent = s.climb != null ? (s.climb * M_TO_FT).toFixed(1) : '–';
+    $('hdg').textContent = s.yaw?.toFixed(0) ?? '–';
+    $('gmb').textContent = s.gimbalPitch?.toFixed(0) ?? '–';
+    $('iso').textContent = s.iso ?? '–';
+    $('sht').textContent = s.shutter ?? '–';
+    $('fnm').textContent = s.fnum?.toFixed(1) ?? '–';
+    curX = t; chart.draw();
+  }
+  function loop() {
+    update();
+    if (playUntil != null && vid.currentTime >= playUntil) { vid.pause(); playUntil = null; }
+    if (!vid.paused && !vid.ended) requestAnimationFrame(loop);
+  }
+  vid.addEventListener('play', () => requestAnimationFrame(loop));
+  vid.addEventListener('seeked', () => update());
+  vid.addEventListener('timeupdate', () => { if (vid.paused) update(); });
+  vid.addEventListener('loadedmetadata', () => update());
+
+  // ---- drag (or click) the chart to scrub playback ----
+  const canvas = document.getElementById('chart');
+  const lastT = T[T.length - 1].t;
+  let scrubbing = false, wasPlaying = false;
+  function timeAt(e) {
+    const x = e.clientX - canvas.getBoundingClientRect().left;
+    const max = isFinite(vid.duration) ? vid.duration : lastT;
+    return Math.max(0, Math.min(chart.scales.x.getValueForPixel(x), max));
+  }
+  function scrubTo(e) {
+    const t = timeAt(e);
+    playUntil = null;      // manual scrub cancels any clip-segment playback
+    vid.currentTime = t;   // drives video; 'seeked' re-syncs precisely
+    update(t);             // instant visual feedback while dragging
+  }
+  canvas.addEventListener('pointerdown', e => {
+    scrubbing = true; wasPlaying = !vid.paused; vid.pause();
+    try { canvas.setPointerCapture(e.pointerId); } catch {} scrubTo(e);
+  });
+  canvas.addEventListener('pointermove', e => { if (scrubbing) scrubTo(e); });
+  function endScrub() { if (scrubbing) { scrubbing = false; if (wasPlaying) vid.play(); } }
+  canvas.addEventListener('pointerup', endScrub);
+  canvas.addEventListener('pointercancel', endScrub);
+
+  // ---- clips: mark in/out, label, save, list, play segment ----
+  const fmtClock = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+  let clipSeq = 0;
+
+  function refreshMarkUI() {
+    $('inT').textContent = markIn != null ? fmtClock(markIn) : '–';
+    $('outT').textContent = markOut != null ? fmtClock(markOut) : '–';
+    $('bIn').classList.toggle('set', markIn != null);
+    $('bOut').classList.toggle('set', markOut != null);
+    $('bSave').disabled = !(markIn != null && markOut != null && markOut > markIn);
+    chart.draw();
+  }
+
+  function renderClips() {
+    const list = $('cliplist');
+    if (!clips.length) { list.innerHTML = `<div class="empty">No clips yet — scrub to a good bit, hit <b>I</b> then <b>O</b>, name it, Save.</div>`; chart.draw(); return; }
+    const ordered = [...clips].sort((a, b) => a.in - b.in);
+    list.innerHTML = ordered.map(cl => `
+      <div class="clip" data-id="${cl.id}">
+        <div class="play" data-id="${cl.id}" title="Play this clip">
+          <span class="lbl">${cl.label ? cl.label.replace(/</g,'&lt;') : 'Untitled'}</span>
+          <span class="rng">${fmtClock(cl.in)}–${fmtClock(cl.out)} · ${(cl.out-cl.in).toFixed(0)}s</span>
+        </div>
+        <button class="del" data-id="${cl.id}" title="Delete">×</button>
+      </div>`).join('');
+    list.querySelectorAll('.play').forEach(el =>
+      el.addEventListener('click', () => playClip(clips.find(c => c.id === el.dataset.id))));
+    list.querySelectorAll('.del').forEach(el =>
+      el.addEventListener('click', () => deleteClip(el.dataset.id)));
+    chart.draw();
+  }
+
+  function playClip(cl) {
+    if (!cl) return;
+    vid.currentTime = cl.in;
+    playUntil = cl.out;
+    vid.play();
+  }
+
+  let statusTimer = null;
+  function showStatus(msg, kind) {
+    const el = $('clipStatus');
+    el.textContent = msg; el.className = 'status ' + kind;
+    clearTimeout(statusTimer);
+    if (kind === 'ok') statusTimer = setTimeout(() => { el.textContent = ''; el.className = 'status'; }, 2500);
+  }
+
+  async function persist() {
+    // resolves true only if the server actually accepted the write
+    try {
+      const r = await fetch(`api/clips/${id}`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flightId: id, clips }) });
+      return r.ok;
+    } catch (e) { return false; }
+  }
+
+  async function saveClip() {
+    if (markIn == null || markOut == null || markOut <= markIn) return;
+    clips.push({ id: 'c' + (++clipSeq) + '_' + Math.floor(markIn * 1000),
+      in: markIn, out: markOut, label: $('clabel').value.trim() });
+    renderClips();
+    if (await persist()) {
+      markIn = markOut = null; $('clabel').value = '';   // keep marks if it failed, so you can retry
+      showStatus('Saved ✓', 'ok');
+    } else {
+      clips.pop();
+      showStatus('Not saved — is the server running? Restart serve.py', 'err');
+    }
+    refreshMarkUI(); renderClips();
+  }
+
+  async function deleteClip(cid) {
+    const backup = clips;
+    clips = clips.filter(c => c.id !== cid);
+    renderClips();
+    if (await persist()) { showStatus('Saved ✓', 'ok'); }
+    else { clips = backup; renderClips(); showStatus('Delete not saved — server down? Restart serve.py', 'err'); }
+  }
+
+  $('bIn').addEventListener('click', () => { markIn = vid.currentTime;
+    if (markOut != null && markOut <= markIn) markOut = null; refreshMarkUI(); });
+  $('bOut').addEventListener('click', () => { markOut = vid.currentTime;
+    if (markIn != null && markIn >= markOut) markIn = null; refreshMarkUI(); });
+  $('bSave').addEventListener('click', saveClip);
+  $('clabel').addEventListener('keydown', e => { if (e.key === 'Enter') saveClip(); });
+
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.metaKey || e.ctrlKey) return;
+    if (e.key === 'i' || e.key === 'I') { markIn = vid.currentTime;
+      if (markOut != null && markOut <= markIn) markOut = null; refreshMarkUI(); }
+    else if (e.key === 'o' || e.key === 'O') { markOut = vid.currentTime;
+      if (markIn != null && markIn >= markOut) markIn = null; refreshMarkUI(); }
+  });
+
+  // load any saved clips for this flight
+  (async () => {
+    try {
+      const r = await fetch(`flights/${id}/clips.json`);
+      if (r.ok) { const j = await r.json(); clips = (j.clips || []).filter(c => c && c.in != null && c.out != null); }
+    } catch {}
+    refreshMarkUI(); renderClips();
+    // opened from the Clips gallery with ?clip=<id> → play that segment
+    const wantClip = new URLSearchParams(location.search).get('clip');
+    if (wantClip) {
+      const cl = clips.find(c => c.id === wantClip);
+      if (cl) {
+        if (vid.readyState >= 1) playClip(cl);
+        else vid.addEventListener('loadedmetadata', () => playClip(cl), { once: true });
+      }
+    }
+  })();
+})();
+</script>
+</body>
+</html>

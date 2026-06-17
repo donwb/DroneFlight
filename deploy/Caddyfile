@@ -1,0 +1,26 @@
+# DroneFlights — Caddy v2 site config.
+# Put your real domain on the first line, then on the droplet:
+#   sudo cp /opt/droneflights/deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Generate the password hash with:  caddy hash-password
+# (paste the bcrypt hash below, keep the username you want)
+
+flights.example.com {
+    root * /opt/droneflights
+
+    # password-protect the whole site (covers viewing AND the clip write API)
+    basic_auth {
+        don REPLACE_WITH_BCRYPT_HASH
+    }
+
+    # the tiny clips API is the only dynamic part -> serve.py on loopback
+    @api path /api/*
+    reverse_proxy @api 127.0.0.1:8778
+
+    # everything else (html, js, proxy.mp4, thumbs, json) Caddy serves directly.
+    # Caddy handles HTTP Range automatically, so video seeking just works.
+    file_server
+
+    encode gzip zstd
+}

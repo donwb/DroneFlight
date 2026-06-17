@@ -1,0 +1,23 @@
+# DroneFlights clips API (serve.py) as a systemd service.
+# Install on the droplet:
+#   sudo cp /opt/droneflights/deploy/droneflights.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now droneflights
+#
+# Caddy serves the static files + media; this only answers /api/* on loopback.
+
+[Unit]
+Description=DroneFlights clips API
+After=network.target
+
+[Service]
+Type=simple
+User=droneflights
+WorkingDirectory=/opt/droneflights
+Environment=DRONE_BIND=127.0.0.1
+ExecStart=/usr/bin/python3 /opt/droneflights/serve.py 8778
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
