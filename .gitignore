@@ -2,6 +2,7 @@
 # They reach the server via rsync (publish.sh), not git.
 flights/
 manifest.json
+geocache.json
 
 # Python / OS cruft
 __pycache__/

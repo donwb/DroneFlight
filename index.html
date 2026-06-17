@@ -87,6 +87,7 @@
   <span class="seg" id="group">
     <button data-v="day">Day</button>
     <button data-v="month">Month</button>
+    <button data-v="place">Place</button>
     <button data-v="flat">Flat</button>
   </span>
   <span class="seg" id="view">
@@ -120,6 +121,7 @@ const dayKey = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate
 const monthKey = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
 const fmtDay = d => d.toLocaleDateString(undefined,{weekday:'short',year:'numeric',month:'short',day:'numeric'});
 const fmtMonth = d => d.toLocaleDateString(undefined,{year:'numeric',month:'long'});
+const slug = s => 'g' + String(s).replace(/[^a-z0-9]+/gi,'-').toLowerCase();   // safe DOM id from any key
 
 // approximate solar elevation (deg) for a flight: local wall-clock + longitude-based TZ.
 function sunAltDeg(date, lat, lon) {
@@ -231,17 +233,19 @@ function render() {
     grid.innerHTML = `<div class="cards">${list.map(card).join('')}</div>`;
     populateJump([]); return;
   }
-  // group by day or month
-  const keyFn = state.group==='day' ? (f=>dayKey(f._d)) : (f=>monthKey(f._d));
-  const labelFn = state.group==='day' ? (f=>fmtDay(f._d)) : (f=>fmtMonth(f._d));
+  // group by day, month, or place
+  const keyFn = { day:f=>dayKey(f._d), month:f=>monthKey(f._d), place:f=>(f.place||'Unknown location') }[state.group];
+  const labelFn = { day:f=>fmtDay(f._d), month:f=>fmtMonth(f._d), place:f=>(f.place||'Unknown location') }[state.group];
   const groups = new Map();
   list.forEach(f => { const k=keyFn(f); if(!groups.has(k)) groups.set(k,{label:labelFn(f),items:[]}); groups.get(k).items.push(f); });
-  const ordered = [...groups.entries()].sort((a,b)=> state.sort==='oldest' ? a[0].localeCompare(b[0]) : b[0].localeCompare(a[0]));
+  const ordered = state.group==='place'
+    ? [...groups.entries()].sort((a,b)=> b[1].items.length-a[1].items.length || a[1].label.localeCompare(b[1].label))
+    : [...groups.entries()].sort((a,b)=> state.sort==='oldest' ? a[0].localeCompare(b[0]) : b[0].localeCompare(a[0]));
   grid.innerHTML = ordered.map(([k,g]) => {
     const secs = g.items.reduce((a,f)=>a+(f.duration||0),0);
     const mi = g.items.reduce((a,f)=>a+(f.pathLength||0),0)*M_TO_MI;
     const mins = Math.round(secs/60);
-    return `<section><div class="group-h" id="grp-${k}">
+    return `<section><div class="group-h" id="grp-${slug(k)}">
         <span class="gt">${g.label}</span>
         <span class="gs">${g.items.length} flight${g.items.length>1?'s':''} · ${mins} min · ${mi.toFixed(2)} mi</span>
       </div><div class="cards">${g.items.map(card).join('')}</div></section>`;
@@ -266,17 +270,25 @@ function card(f) {
     </div></a>`;
 }
 
-// ---------- jump-to-month ----------
+// ---------- jump menu (months for date grouping, places for place grouping) ----------
 function populateJump(groups) {
   const sel = document.getElementById('jump');
-  // collapse to distinct months, point each at its first group on screen
-  const seen = new Set(), opts = [];
-  groups.forEach(([k,label]) => {
-    const mk = k.slice(0,7);
-    if (!seen.has(mk)) { seen.add(mk); opts.push([k, state.group==='month' ? label : label.replace(/^.*?,\s*/,'')]); }
-  });
+  let opts;
+  if (state.group === 'place') {
+    opts = groups.map(([k,label]) => [slug(k), label]);          // one entry per place
+  } else {
+    const seen = new Set(); opts = [];                            // collapse days/months to months
+    groups.forEach(([k,label]) => {
+      const mk = k.slice(0,7);
+      if (!seen.has(mk)) {
+        seen.add(mk);
+        const d = new Date(mk + '-01T00:00:00');
+        opts.push([slug(k), isNaN(d) ? label : d.toLocaleDateString(undefined,{year:'numeric',month:'long'})]);
+      }
+    });
+  }
   sel.innerHTML = `<option value="">Jump to…</option>` +
-    opts.map(([k,l]) => `<option value="grp-${k}">${l}</option>`).join('');
+    opts.map(([s,l]) => `<option value="grp-${s}">${l}</option>`).join('');
 }
 
 // ---------- map ----------
