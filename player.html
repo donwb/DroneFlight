@@ -259,54 +259,42 @@ const M_TO_FT = 3.28084, MS_TO_MPH = 2.23694, M_TO_MI = 0.000621371;
     if (!vid.paused && !vid.ended) requestAnimationFrame(loop);
   }
   vid.addEventListener('play', () => requestAnimationFrame(loop));
-  // coalesce scrub seeks: a fresh seek can't start while one is in flight, so we
-  // remember the latest requested time and fire it the instant the current seek
-  // finishes — the video chases the cursor in real time instead of dropping targets.
-  let pendingSeek = null;
-  function seekVideo(t) {
-    if (vid.seeking) { pendingSeek = t; return; }   // queue the newest target
-    pendingSeek = null;
-    vid.currentTime = t;   // precise seek: continuous frames, not keyframe-quantized steps
-  }
-  vid.addEventListener('seeked', () => {
-    if (!scrubbing) update();   // while dragging, the cursor drives the display, not the keyframe we landed on
-    if (pendingSeek != null) { const t = pendingSeek; pendingSeek = null; seekVideo(t); }
-  });
+  vid.addEventListener('seeked', () => { if (!scrubbing) update(); });  // clip seeks / final settle; the scrub loop owns the display while dragging
   vid.addEventListener('timeupdate', () => { if (vid.paused) update(); });
   vid.addEventListener('loadedmetadata', () => update());
 
   // ---- drag (or click) the chart to scrub playback ----
   const canvas = document.getElementById('chart');
   const lastT = T[T.length - 1].t;
-  let scrubbing = false, wasPlaying = false, scrubT = null, scrubRAF = 0;
+  let scrubbing = false, wasPlaying = false, scrubT = null;
   function timeAt(e) {
     const x = e.clientX - canvas.getBoundingClientRect().left;
     const max = isFinite(vid.duration) ? vid.duration : lastT;
     return Math.max(0, Math.min(chart.scales.x.getValueForPixel(x), max));
   }
-  // pointer events fire faster than the screen refreshes; collapse them to one
-  // update per animation frame so the playhead/map/HUD glide instead of thrashing.
-  function scrubFrame() {
-    scrubRAF = 0;
-    if (scrubT == null) return;
-    update(scrubT);        // smooth visual feedback at the display's refresh rate
-    seekVideo(scrubT);     // video chases the latest cursor position as fast as it decodes
+  // One self-sustaining loop runs for the whole drag. Each frame it redraws the
+  // playhead/map/HUD at the latest cursor position, and — gating on vid.seeking,
+  // the browser's own truth — issues a fresh seek the instant the decoder is idle.
+  // No flag of ours can get orphaned, so the video can't get stuck mid-scrub.
+  function scrubLoop() {
+    if (!scrubbing) return;
+    if (scrubT != null) {
+      update(scrubT);                                  // smooth visual feedback at refresh rate
+      if (!vid.seeking) vid.currentTime = scrubT;      // chase the cursor whenever the decoder is free
+    }
+    requestAnimationFrame(scrubLoop);
   }
-  function scrubTo(e) {
-    scrubT = timeAt(e);
-    playUntil = null;      // manual scrub cancels any clip-segment playback
-    if (!scrubRAF) scrubRAF = requestAnimationFrame(scrubFrame);
-  }
+  function scrubTo(e) { scrubT = timeAt(e); playUntil = null; }  // manual scrub cancels clip-segment playback
   canvas.addEventListener('pointerdown', e => {
     scrubbing = true; wasPlaying = !vid.paused; vid.pause();
-    try { canvas.setPointerCapture(e.pointerId); } catch {} scrubTo(e);
+    try { canvas.setPointerCapture(e.pointerId); } catch {}
+    scrubTo(e); requestAnimationFrame(scrubLoop);
   });
   canvas.addEventListener('pointermove', e => { if (scrubbing) scrubTo(e); });
   function endScrub() {
     if (!scrubbing) return;
-    scrubbing = false;
-    if (scrubRAF) { cancelAnimationFrame(scrubRAF); scrubRAF = 0; }
-    if (scrubT != null) { update(scrubT); vid.currentTime = scrubT; }   // flush final position (also handles a plain click)
+    scrubbing = false;                                 // stops the loop
+    if (scrubT != null) { update(scrubT); vid.currentTime = scrubT; }   // flush exact final frame (also a plain click)
     if (wasPlaying) vid.play();
   }
   canvas.addEventListener('pointerup', endScrub);
