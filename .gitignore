@@ -12,3 +12,6 @@ __pycache__/
 # local editor/runtime
 .claude/
 *.log
+
+# screen recordings / scratch video (don't commit — large binaries)
+*.mov
